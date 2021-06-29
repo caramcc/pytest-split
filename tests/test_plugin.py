@@ -15,15 +15,19 @@ def example_suite(testdir):
 
 
 @pytest.fixture
-def durations_path(tmpdir):
-    return str(tmpdir.join(".durations"))
+def durations_save_path(tmpdir):
+    return str(tmpdir.join(".saved_durations"))
+
+@pytest.fixture
+def durations_load_path(tmpdir):
+    return str(tmpdir.join(".loaded_durations"))
 
 
 class TestStoreDurations:
-    def test_it_stores(self, example_suite, durations_path):
-        example_suite.runpytest("--store-durations", "--durations-path", durations_path)
+    def test_it_stores(self, example_suite, durations_save_path):
+        example_suite.runpytest("--store-durations", "--durations-save-path", durations_save_path)
 
-        with open(durations_path) as f:
+        with open(durations_save_path) as f:
             durations = json.load(f)
 
         assert list(durations.keys()) == [
@@ -42,9 +46,9 @@ class TestStoreDurations:
         for duration in durations.values():
             assert isinstance(duration, float)
 
-    def test_it_does_not_store_without_flag(self, example_suite, durations_path):
-        example_suite.runpytest("--durations-path", durations_path)
-        assert not os.path.exists(durations_path)
+    def test_it_does_not_store_without_flag(self, example_suite, durations_save_path):
+        example_suite.runpytest("--durations-path", durations_save_path)
+        assert not os.path.exists(durations_save_path)
 
 
 class TestSplitToSuites:
@@ -85,7 +89,7 @@ class TestSplitToSuites:
     enumerated_params = [(i, *param) for i, param in enumerate(all_params)]
 
     @pytest.mark.parametrize("test_idx, splits, group, algo, expected, legacy_flag", enumerated_params)
-    def test_it_splits(self, test_idx, splits, group, algo, expected, legacy_flag, example_suite, durations_path):
+    def test_it_splits(self, test_idx, splits, group, algo, expected, legacy_flag, example_suite, durations_load_path):
         durations = {
             **{f"test_it_splits{test_idx}/test_it_splits.py::test_{num}": 1 for num in range(1, 6)},
             **{f"test_it_splits{test_idx}/test_it_splits.py::test_{num}": 2 for num in range(6, 11)},
@@ -94,7 +98,7 @@ class TestSplitToSuites:
             # formats durations to legacy format
             durations = [list(tup) for tup in durations.items()]
 
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump(durations, f)
 
         result = example_suite.inline_run(
@@ -102,15 +106,15 @@ class TestSplitToSuites:
             str(splits),
             "--group",
             str(group),
-            "--durations-path",
-            durations_path,
+            "--durations-load-path",
+            durations_load_path,
             "--splitting-algorithm",
             algo,
         )
         result.assertoutcome(passed=len(expected))
         assert _passed_test_names(result) == expected
 
-    def test_it_adapts_splits_based_on_new_and_deleted_tests(self, example_suite, durations_path):
+    def test_it_adapts_splits_based_on_new_and_deleted_tests(self, example_suite, durations_load_path):
         # Only 4/10 tests listed here, avg duration 1 sec
         test_path = (
             "test_it_adapts_splits_based_on_new_and_deleted_tests0/"
@@ -124,30 +128,30 @@ class TestSplitToSuites:
             test_path.format("test_THIS_IS_NOT_IN_THE_SUITE"): 1000,
         }
 
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump(durations, f)
 
-        result = example_suite.inline_run("--splits", "3", "--group", "1", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "3", "--group", "1", "--durations-load-path", durations_load_path)
         result.assertoutcome(passed=4)
         assert _passed_test_names(result) == ["test_1", "test_2", "test_3", "test_4"]
 
-        result = example_suite.inline_run("--splits", "3", "--group", "2", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "3", "--group", "2", "--durations-load-path", durations_load_path)
         result.assertoutcome(passed=3)
         assert _passed_test_names(result) == ["test_5", "test_6", "test_7"]
 
-        result = example_suite.inline_run("--splits", "3", "--group", "3", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "3", "--group", "3", "--durations-load-path", durations_load_path)
         result.assertoutcome(passed=3)
         assert _passed_test_names(result) == ["test_8", "test_9", "test_10"]
 
-    def test_handles_case_of_no_durations_for_group(self, example_suite, durations_path):
-        with open(durations_path, "w") as f:
+    def test_handles_case_of_no_durations_for_group(self, example_suite, durations_load_path):
+        with open(durations_load_path, "w") as f:
             json.dump({}, f)
 
-        result = example_suite.inline_run("--splits", "1", "--group", "1", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "1", "--group", "1", "--durations-load-path", durations_load_path)
         assert result.ret == ExitCode.OK
         result.assertoutcome(passed=10)
 
-    def test_it_splits_with_other_collect_hooks(self, testdir, durations_path):
+    def test_it_splits_with_other_collect_hooks(self, testdir, durations_load_path):
         expected_tests_per_group = [
             ["test_1", "test_2", "test_3"],
             ["test_4", "test_5"],
@@ -163,11 +167,11 @@ class TestSplitToSuites:
                 **{f"test_it_splits_when_paired_with_marker_expressions.py::test_{num}": 2 for num in range(3, 6)},
             },
         )
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump(durations[0], f)
 
         results = [
-            testdir.inline_run("--splits", 2, "--group", group, "--durations-path", durations_path, "-m" "mark_one")
+            testdir.inline_run("--splits", 2, "--group", group, "--durations-load-path", durations_load_path, "-m" "mark_one")
             for group in range(1, 3)
         ]
 
@@ -224,11 +228,11 @@ class TestRaisesUsageErrors:
 
 
 class TestHasExpectedOutput:
-    def test_prints_splitting_summary_when_durations_present(self, example_suite, capsys, durations_path):
+    def test_prints_splitting_summary_when_durations_present(self, example_suite, capsys, durations_load_path):
         test_name = "test_prints_splitting_summary_when_durations_present"
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump([[f"{test_name}0/{test_name}.py::test_1", 0.5]], f)
-        result = example_suite.inline_run("--splits", "1", "--group", "1", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "1", "--group", "1", "--durations-load-path", durations_load_path)
         assert result.ret == ExitCode.OK
 
         outerr = capsys.readouterr()
@@ -241,32 +245,32 @@ class TestHasExpectedOutput:
         outerr = capsys.readouterr()
         assert "[pytest-split]" not in outerr.out
 
-    def test_prints_correct_number_of_selected_and_deselected_tests(self, example_suite, capsys, durations_path):
+    def test_prints_correct_number_of_selected_and_deselected_tests(self, example_suite, capsys, durations_load_path):
         test_name = "test_prints_splitting_summary_when_durations_present"
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump([[f"{test_name}0/{test_name}.py::test_1", 0.5]], f)
-        result = example_suite.inline_run("--splits", "5", "--group", "1", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "5", "--group", "1", "--durations-load-path", durations_load_path)
         assert result.ret == ExitCode.OK
 
         outerr = capsys.readouterr()
         assert "collected 10 items / 8 deselected / 2 selected" in outerr.out
 
-    def test_prints_estimated_duration(self, example_suite, capsys, durations_path):
+    def test_prints_estimated_duration(self, example_suite, capsys, durations_load_path):
         test_name = "test_prints_estimated_duration"
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump([[f"{test_name}0/{test_name}.py::test_1", 0.5]], f)
-        result = example_suite.inline_run("--splits", "5", "--group", "1", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "5", "--group", "1", "--durations-load-path", durations_load_path)
         assert result.ret == ExitCode.OK
 
         outerr = capsys.readouterr()
         assert "[pytest-split] Running group 1/5 (estimated duration: 1.00s)" in outerr.out
 
-    def test_prints_used_algorithm(self, example_suite, capsys, durations_path):
+    def test_prints_used_algorithm(self, example_suite, capsys, durations_load_path):
         test_name = "test_prints_used_algorithm"
-        with open(durations_path, "w") as f:
+        with open(durations_load_path, "w") as f:
             json.dump([[f"{test_name}0/{test_name}.py::test_1", 0.5]], f)
 
-        result = example_suite.inline_run("--splits", "5", "--group", "1", "--durations-path", durations_path)
+        result = example_suite.inline_run("--splits", "5", "--group", "1", "--durations-load-path", durations_load_path)
         assert result.ret == ExitCode.OK
 
         outerr = capsys.readouterr()

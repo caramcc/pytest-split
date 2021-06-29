@@ -32,13 +32,22 @@ def pytest_addoption(parser: "Parser") -> None:
         "--store-durations",
         dest="store_durations",
         action="store_true",
-        help="Store durations into '--durations-path'.",
+        help="Store durations into '--durations-store-path'.",
     )
     group.addoption(
-        "--durations-path",
-        dest="durations_path",
+        "--durations-store-path",
+        dest="durations_store_path",
         help=(
             "Path to the file in which durations are (to be) stored, "
+            "default is .test_durations in the current working directory"
+        ),
+        default=os.path.join(os.getcwd(), ".test_durations"),
+    )
+    group.addoption(
+        "--durations-load-path",
+        dest="durations_load_path",
+        help=(
+            "Path to the file in which durations are loaded from, "
             "default is .test_durations in the current working directory"
         ),
         default=os.path.join(os.getcwd(), ".test_durations"),
@@ -113,7 +122,7 @@ class Base:
         self.writer = create_terminal_writer(self.config)
 
         try:
-            with open(config.option.durations_path, "r") as f:
+            with open(config.option.durations_load_path, "r") as f:
                 self.cached_durations = json.loads(f.read())
         except FileNotFoundError:
             self.cached_durations = {}
@@ -203,10 +212,10 @@ class PytestSplitCachePlugin(Base):
             self.cached_durations[k] = v
 
         # Save durations
-        with open(self.config.option.durations_path, "w") as f:
+        with open(self.config.option.durations_store_path, "w") as f:
             json.dump(self.cached_durations, f)
 
         message = self.writer.markup(
-            "\n\n[pytest-split] Stored test durations in {}".format(self.config.option.durations_path)
+            "\n\n[pytest-split] Stored test durations in {}".format(self.config.option.durations_store_path)
         )
         self.writer.line(message)
